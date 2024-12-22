@@ -57,7 +57,24 @@
 </head>
 
 <body>
-    <!-- <h2>Login</h2> -->
+    <!-- Add error message display at the top of the form -->
+    {% if error %}
+    <div class="alert alert-danger" style="
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 15px;
+        border-radius: 5px;
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        color: #721c24;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        z-index: 1000;">
+        {{ error }}
+    </div>
+    {% endif %}
+
     <form action="/login" method="POST">
         <label for="role">Select Role:</label>
         <select name="role" id="role" required>
@@ -66,13 +83,13 @@
         </select>
         
         <label for="username">Username:</label>
-        <input type="text" name="username" required>
+        <input type="text" id="username" name="username" required>
         
         <label for="password">Password:</label>
-        <input type="password" name="password" required>
+        <input type="password" id="password" name="password" required>
 
         <label for="userid">userid:</label>
-        <input type="text" name="userid">
+        <input type="text" id="userid" name="userid">
         
         <input type="submit" value="Login">
     </form>

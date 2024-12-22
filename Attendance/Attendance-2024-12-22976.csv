@@ -1,2 +1,2 @@
 Name,ID,Designation,Date,Shift,Punch In,Punch Out,Status,Login Role,Login Username,Login UserID
-Peesa Vikas,1,Developer,2024-12-22,Afternoon,21:50:24,,Present,admin,vikas,1
+Peesa Vikas,1,Developer,2024-12-22,Afternoon,21:32:20,21:49:55,Early Departure,admin,vikas,

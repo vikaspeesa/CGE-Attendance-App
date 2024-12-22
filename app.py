@@ -37,6 +37,9 @@ SHIFTS = {
     }
 }
 
+# Define the path to credentials file
+CREDENTIALS_FILE = os.path.join(os.path.dirname(__file__), 'templates', 'cred.csv')
+
 # Function to show alert message
 def show_alert():
     root = tk.Tk()
@@ -60,42 +63,43 @@ def name():
         return render_template('camera.html', 
                              name1=name1, 
                              ID=ID, 
-                             Designation=Designation)
+                             Designation=Designation,
+                             insecure_warning=True)
     else:
         return 'All is not well'
 
 @app.route('/save-photo', methods=['POST'])
 def save_photo():
     try:
-        if 'image' not in request.files:
-            return jsonify({'success': False, 'error': 'No image file'})
-
-        image_file = request.files['image']
+        image = request.files['image']
         name1 = request.form['name1']
-        ID = request.form['name2']
-        Designation = request.form['name3']
-
-        # Create filename
-        img_name = f"{name1}.{ID}.{Designation}.png"
+        name2 = request.form['name2']
+        name3 = request.form['name3']
         
-        # Save path
-        path = 'Training images'
-        if not os.path.exists(path):
-            os.makedirs(path)
-            
-        # Save the image
-        image_path = os.path.join(path, img_name)
-        image_file.save(image_path)
+        # Create the Training images directory if it doesn't exist
+        training_dir = 'Training images'
+        if not os.path.exists(training_dir):
+            os.makedirs(training_dir)
         
-        # Convert to format needed by face_recognition if necessary
-        img = Image.open(image_path)
-        img = img.convert('RGB')
-        img.save(image_path)
-
-        return jsonify({'success': True})
-
+        # Save the image with the formatted filename
+        filename = f"{name1}.{name2}.{name3}.png"
+        filepath = os.path.join(training_dir, filename)
+        image.save(filepath)
+        
+        # Reload the known faces after adding new image
+        global encodeListKnown, classNames
+        encodeListKnown, classNames = load_known_faces()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Photo saved successfully to Training images folder',
+            'filename': filename
+        })
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        })
 
 @app.route("/", methods=["GET", "POST"])
 def recognize():
@@ -167,48 +171,77 @@ def logout():
 
 @app.route('/login', methods=['GET','POST'])
 def login():
-    json_data = request.form
-    username = json_data['username']
-    password = json_data['password']
-    role = json_data['role']
+    try:
+        json_data = request.form
+        username = json_data['username']
+        password = json_data['password']
+        role = json_data['role']
+        user_id = json_data.get('userid', '')
 
-    df = pd.read_csv('C:\\Users\\pravi\\Downloads\\CGE-Attendance-App\\CGE-Attendance-App\\templates\\cred.csv')
+        # Debug prints
+        print("Login attempt:")
+        print(f"Username: {username}")
+        print(f"UserID: {user_id}")
+        print(f"Role: {role}")
 
-    # print(f"Username: {username}, Password: {password}, Role: {role}")  # Debugging output
+        df = pd.read_csv(CREDENTIALS_FILE)
+        
+        # Debug: Print DataFrame info
+        print("\nCredentials file content:")
+        print(df.head())
+        print("\nColumns:", df.columns.tolist())
 
-    # Check credentials based on role
-    user_record = df.loc[df['username'] == username]
+        # Convert user_id to string for comparison
+        df['userid'] = df['userid'].astype(str)
+        user_id = str(user_id)
 
-    if not user_record.empty:
-        if user_record['password'].values[0] == password:
-            # Check if the role matches
-            if user_record['role'].values[0] == role:
-                session['username'] = username
-                session['role'] = role
-                return redirect(url_for('emp'))
-            else:
-                return '''
-                    <script>
-                        alert("Login Failed: Role mismatch");
-                        window.location.href = "/login";  // Redirect to login page
-                    </script>
-                '''
-        else:
-            return '''
-                <script>
-                    alert("Login Failed: Incorrect password");
-                    window.location.href = "/login";  // Redirect to login page
-                </script>
-            '''
-    else:
-        return '''
-            <script>
-                alert("Login Failed: User not found");
-                window.location.href = "/login";  // Redirect to login page
-            </script>
-        '''
+        # Debug: Print filtered records
+        print("\nFiltering for:")
+        print(f"Username: {username}, UserID: {user_id}")
+        
+        user_record = df.loc[
+            (df['username'] == username) & 
+            (df['userid'] == user_id)
+        ]
 
-    return render_template('main.html')
+        print("\nFound records:")
+        print(user_record)
+
+        if user_record.empty:
+            return render_template('main.html', 
+                error="Invalid Login: Username or ID not found")
+
+        # Debug: Print password comparison
+        print("\nPassword check:")
+        print(f"Input password: {password}")
+        print(f"Stored password: {user_record['password'].values[0]}")
+
+        if user_record['password'].values[0] != password:
+            return render_template('main.html', 
+                error="Invalid Login: Incorrect password")
+
+        # Debug: Print role comparison
+        print("\nRole check:")
+        print(f"Input role: {role}")
+        print(f"Stored role: {user_record['role'].values[0]}")
+
+        if user_record['role'].values[0] != role:
+            return render_template('main.html', 
+                error="Invalid Login: Role mismatch")
+
+        # If all checks pass, store session and redirect
+        session['username'] = username
+        session['role'] = role
+        session['user_id'] = user_id
+        session['designation'] = user_record['designation'].values[0] if 'designation' in user_record else ''
+        
+        print("\nLogin successful!")
+        return redirect(url_for('emp'))
+            
+    except Exception as e:
+        print(f"Login error: {str(e)}")  # Debug print
+        return render_template('main.html', 
+            error=f"System Error: {str(e)}")  # Show actual error for debugging
 
 @app.route('/main')
 def main():
@@ -413,17 +446,17 @@ def markAttendance(name, id_num, designation, punch_type):
         time = now.strftime('%H:%M:%S')
         current_shift = determine_shift()
         
-        # For punch out, validate punch in first
-        if punch_type == 'out':
-            has_punch_in, message = validate_punch_in(name, id_num, date)
-            if not has_punch_in:
-                raise ValueError(f"Cannot punch out: {message}. Please punch in first.")
-        
         if not os.path.exists('Attendance'):
             os.makedirs('Attendance')
             
         filename = f'Attendance/Attendance-{date}.csv'
-        headers = ['Name', 'ID', 'Designation', 'Date', 'Shift', 'Punch In', 'Punch Out', 'Status']
+        headers = ['Name', 'ID', 'Designation', 'Date', 'Shift', 'Punch In', 'Punch Out', 'Status', 
+                  'Login Role', 'Login Username', 'Login UserID']  # Added new columns
+        
+        # Get login details from session
+        login_role = session.get('role', 'Unknown')
+        login_username = session.get('username', 'Unknown')
+        login_userid = session.get('user_id', 'Unknown')
         
         # Create new file with headers if it doesn't exist
         if not os.path.exists(filename):
@@ -443,19 +476,23 @@ def markAttendance(name, id_num, designation, punch_type):
                 
                 for row in reader:
                     current_row = list(row)
+                    # Extend row if it doesn't have all columns
                     while len(current_row) < len(headers):
                         current_row.append('')
                     
                     if len(current_row) >= 2 and current_row[0] == name and current_row[1] == id_num:
                         user_found = True
                         if punch_type == 'in':
-                            # Check if already punched in
                             if current_row[5] and current_row[5].strip():
                                 raise ValueError(f"Already punched in at {current_row[5]}")
                             
                             current_row[4] = current_shift
                             current_row[5] = time
                             current_row[7] = 'Present'
+                            # Add login details
+                            current_row[8] = login_role
+                            current_row[9] = login_username
+                            current_row[10] = login_userid
                             status_message = f"Punch In recorded for {name} at {time} ({current_shift} shift)"
                         elif punch_type == 'out':
                             if not current_row[5]:
@@ -463,7 +500,6 @@ def markAttendance(name, id_num, designation, punch_type):
                             
                             current_row[6] = time
                             
-                            # Calculate if late or early departure
                             shift_end = SHIFTS[current_row[4]]['end']
                             current_time = datetime.strptime(time, '%H:%M:%S').time()
                             
@@ -476,7 +512,8 @@ def markAttendance(name, id_num, designation, punch_type):
                 
                 if not user_found:
                     if punch_type == 'in':
-                        new_row = [name, id_num, designation, date, current_shift, time, '', 'Present']
+                        new_row = [name, id_num, designation, date, current_shift, time, '', 'Present',
+                                 login_role, login_username, login_userid]  # Include login details
                         rows.append(new_row)
                         status_message = f"New Punch In recorded for {name} at {time} ({current_shift} shift)"
                     else:
