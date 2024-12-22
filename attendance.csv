@@ -1,7 +1,4 @@
-Name,Time,Date,Shift
+Name,ID,Designation,InTime,OutTime,Date,Shift
 
-
-
-
-VIKAS,21:24,2024-11-09,B
-VIKAS PEESA,21:27,2024-11-09,B
+PEESA VIKAS,1,Developer,21:41,07:07,2024-11-14,General
+TEST123,123,qwe,17:53,17:53,2024-12-22,B

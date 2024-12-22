@@ -1,17 +1,41 @@
-from flask import Flask, render_template, request, session
+from flask import Flask, render_template, request, session,render_template, request, redirect, session, url_for, jsonify, flash
 import cv2
 import numpy as np
 import face_recognition
 import os
-from datetime import datetime, date
+from datetime import datetime, date, time
 import sqlite3
 import pandas as pd  # Make sure to include this import
 import json  # This import is also used in the login function
 import tkinter as tk
 from tkinter import messagebox
+import base64
+from PIL import Image
+import io
+import csv
 
-name="amlan"
+name="vikas"
 app = Flask(__name__)
+app.secret_key = 'vikas' 
+
+# Add these global variables at the top of your file
+PUNCH_TYPE = None
+
+# Define shift timings
+SHIFTS = {
+    'Morning': {
+        'start': time(6, 0),  # 6:00 AM
+        'end': time(14, 0),   # 2:00 PM
+    },
+    'Afternoon': {
+        'start': time(14, 0), # 2:00 PM
+        'end': time(22, 0),   # 10:00 PM
+    },
+    'Night': {
+        'start': time(22, 0), # 10:00 PM
+        'end': time(6, 0),    # 6:00 AM
+    }
+}
 
 # Function to show alert message
 def show_alert():
@@ -29,208 +53,176 @@ def new():
 
 @app.route('/name', methods=['GET', 'POST'])
 def name():
-    if request.method=="POST":
-        name1=request.form['name1']
-        name2=request.form['name2']
-
-        cam = cv2.VideoCapture(0)
-
-       # cv2.namedWindow("Face Recogniser")
-
-    
-
-        while True:
-            ret, frame = cam.read()
-            if not ret:
-                print("failed to grab frame")
-                break
-            cv2.imshow("Press Space to capture image", frame)
-
-            k = cv2.waitKey(1)
-            if k%256 == 27:
-                # ESC pressed
-                print("Escape hit, closing...")
-                break
-            elif k%256 == 32:
-                # SPACE pressed
-                img_name = name1+".png"
-                path='C:\\Users\\pravi\\Downloads\\face-recognition-attendance-management-system-with-PowerBI-dashboard-main\\face-recognition-attendance-management-system-with-PowerBI-dashboard\\Training images'
-                cv2.imwrite(os.path.join(path,img_name), frame)
-                print("{} written!".format(img_name))
-                show_alert()  # Show alert message after capturing the image
-
-                
-
-        cam.release()
-
-        cv2.destroyAllWindows()
-        return render_template('image.html')
+    if request.method == "POST":
+        name1 = request.form['name1']
+        ID = request.form['name2']
+        Designation = request.form['name3']
+        return render_template('camera.html', 
+                             name1=name1, 
+                             ID=ID, 
+                             Designation=Designation)
     else:
         return 'All is not well'
 
-@app.route("/",methods=["GET","POST"])
-def recognize():
-     if request.method=="POST":
+@app.route('/save-photo', methods=['POST'])
+def save_photo():
+    try:
+        if 'image' not in request.files:
+            return jsonify({'success': False, 'error': 'No image file'})
+
+        image_file = request.files['image']
+        name1 = request.form['name1']
+        ID = request.form['name2']
+        Designation = request.form['name3']
+
+        # Create filename
+        img_name = f"{name1}.{ID}.{Designation}.png"
+        
+        # Save path
         path = 'Training images'
-        images = []
-        classNames = []
-        myList = os.listdir(path)
-        print(myList)
-        for cl in myList:
-            curImg = cv2.imread(f'{path}/{cl}')
-            images.append(curImg)
-            classNames.append(os.path.splitext(cl)[0])
-        print(classNames)
-        
-        def findEncodings(images):
-            encodeList = []
-            for img in images:
-                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                encode = face_recognition.face_encodings(img)[0]
-                if not len(encode):
-                    print( "can't be encoded")
-                    continue
-                encodeList.append(encode)
-            return encodeList
-
-        def markData(name):
-            now = datetime.now()
-            dtString = now.strftime('%H:%M')
-            today = date.today()
-             # Determine the shift based on the time
-            hour = now.hour
-            if 8 <= hour < 14:  # Shift A: 6 AM to 2 PM
-                shift = 'A'
-            elif 14 <= hour < 20:  # Shift B: 2 PM to 10 PM
-                shift = 'B'
-            elif 20 <= hour < 8:  # Shift C: 10 PM to 6 AM
-                shift = 'C'
-            else:  # General Shift (if applicable, adjust as needed)
-                shift = 'General'
-            print("The Attended Person is ",name)
-           
-            d1 = today.strftime('%b-%d-%Y')
-            print("Today's date:", today)
-            conn = sqlite3.connect('information.db')
-            conn.execute('''CREATE TABLE IF NOT EXISTS CGAttendance
-                            (NAME TEXT  NOT NULL,
-                             Time  TEXT NOT NULL ,
-                             Date TEXT NOT NULL,
-                             Shift TEXT NOT NULL)''')
-                       
-            conn.execute("INSERT or Ignore into CGAttendance (NAME,Time,Date,Shift ) values (?,?,?,?)",(name,dtString,today,shift))
-            conn.commit()  
-            cursor = conn.execute("SELECT NAME,Time,Date ,Shift from CGAttendance")
-                                                                  
-            for line in cursor:
-                print("Name Updated :",line[0])
-                print("Time Updated :",line[1])
-                print("Date Updated :",line[2])
+        if not os.path.exists(path):
+            os.makedirs(path)
             
+        # Save the image
+        image_path = os.path.join(path, img_name)
+        image_file.save(image_path)
+        
+        # Convert to format needed by face_recognition if necessary
+        img = Image.open(image_path)
+        img = img.convert('RGB')
+        img.save(image_path)
 
-        
-        def markAttendance(name):
+        return jsonify({'success': True})
 
-            now = datetime.now()
-            dtString = now.strftime('%H:%M')
-            today = date.today()
-            
-            # Determine the shift based on the time
-            hour = now.hour
-            if 8 <= hour < 14:  # Shift A: 6 AM to 2 PM
-                shift = 'A'
-            elif 14 <= hour < 20:  # Shift B: 2 PM to 10 PM
-                shift = 'B'
-            elif 20 <= hour < 8:  # Shift C: 10 PM to 6 AM
-                shift = 'C'
-            else:  # General Shift (if applicable, adjust as needed)
-                shift = 'General'
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
-            with open('attendance.csv','r+',errors='ignore') as f:
-                myDataList = f.readlines()
-                nameList = []
-                for line in myDataList:
-                    print(myDataList)
-                    entry = line.split(',')
-                    nameList.append(entry[0])
-                if name not in nameList:
-                    now = datetime.now()
-                    dtString = now.strftime('%H:%M')
-                    today = date.today()
-                    f.writelines(f'\n{name},{dtString},{today},{shift}')
-    
-
-
-        
-        # ### FOR CAPTURING SCREEN RATHER THAN WEBCAM
-        # def captureScreen(bbox=(300,300,690+300,530+300)):
-        #     capScr = np.array(ImageGrab.grab(bbox))
-        #     capScr = cv2.cvtColor(capScr, cv2.COLOR_RGB2BGR)
-        #     return capScr
-        
-        encodeListKnown = findEncodings(images)
-        print('Encoding Complete')
-        
-        cap = cv2.VideoCapture(0)
-        
-        while True:
-            success, img = cap.read()
-            #img = captureScreen()
-            imgS = cv2.resize(img,(0,0),None,0.25,0.25)
-            imgS = cv2.cvtColor(imgS, cv2.COLOR_BGR2RGB)
-        
-            facesCurFrame = face_recognition.face_locations(imgS)
-            encodesCurFrame = face_recognition.face_encodings(imgS,facesCurFrame)
-        
-            for encodeFace,faceLoc in zip(encodesCurFrame,facesCurFrame):
-                matches = face_recognition.compare_faces(encodeListKnown,encodeFace)
-                faceDis = face_recognition.face_distance(encodeListKnown,encodeFace)
-                #print(faceDis)
-                matchIndex = np.argmin(faceDis)
-        
-                if faceDis[matchIndex]< 0.50:
-                    name = classNames[matchIndex].upper()
-                    markAttendance(name)
-                    markData(name)
-                else:
-                    name = 'Unknown'
-                #print(name)
-                y1,x2,y2,x1 = faceLoc
-                y1, x2, y2, x1 = y1*4,x2*4,y2*4,x1*4
-                cv2.rectangle(img,(x1,y1),(x2,y2),(0,255,0),2)
-                cv2.rectangle(img,(x1,y2-35),(x2,y2),(0,255,0),cv2.FILLED)
-                cv2.putText(img,name,(x1+6,y2-6),cv2.FONT_HERSHEY_COMPLEX,1,(255,255,255),2)
-            cv2.imshow('Punch your Attendance',img)
-            c=cv2.waitKey(1)
-            if c == 27:
-                break
-        cap.release()
-        cv2.destroyAllWindows()
-
-        return render_template('first.html')
-        
-     else:
+@app.route("/", methods=["GET", "POST"])
+def recognize():
+    if request.method == "POST":
+        return render_template('recognize.html')
+    else:
         return render_template('main.html')
 
-
-@app.route('/login',methods = ['POST'])
-def login():
-    #print( request.headers )
+@app.route('/logout', methods=["POST"])
+def logout():
     json_data = json.loads(request.data.decode())
     username = json_data['username']
-    password = json_data['password']
-    #print(username,password)
-    df= pd.read_csv('cred.csv')
-    if len(df.loc[df['username'] == username]['password'].values) > 0:
-        if df.loc[df['username'] == username]['password'].values[0] == password:
-            session['username'] = username
-            return 'success'
-        else:
-            return 'failed'
-    else:
-        return 'failed'
-        
+    
+    # Logic to find the row for the user and update the out-time
+    with open('attendance.csv', 'r+') as f:
+        myDataList = f.readlines()
+        updatedDataList = []
+        for line in myDataList:
+            entry = line.split(',')
+            if entry[0] == username:
+                entry[4] = datetime.now().strftime('%H:%M')  # Set out-time
+            updatedDataList.append(','.join(entry))
+        f.seek(0)
+        f.writelines(updatedDataList)
+        f.truncate()
+    
+    # Clear the session
+    session.pop('username', None)
+    
+    return 'Out-time recorded successfully'
 
+# @app.route('/login',methods = ['POST'])
+# def login():
+#     #print( request.headers )
+#     json_data = json.loads(request.data.decode())
+#     username = json_data['username']
+#     password = json_data['password']
+#     #print(username,password)
+#     df= pd.read_csv('cred.csv')
+#     if len(df.loc[df['username'] == username]['password'].values) > 0:
+#         if df.loc[df['username'] == username]['password'].values[0] == password:
+#             session['username'] = username
+#             return 'success'
+#         else:
+#             return 'failed'
+#     else:
+#         return 'failed'
+        
+# @app.route('/login', methods=['POST'])
+# def login():
+#     json_data = request.form  # Change to request.form
+#     username = json_data['username']
+#     password = json_data['password']
+#     role = json_data['role']  # Get the selected role
+
+#     df = pd.read_csv('C:\\Users\\pravi\\Downloads\\CGE-Attendance-App\\CGE-Attendance-App\\templates\\cred.csv')
+    
+#     # Check credentials based on role
+#     if len(df.loc[df['username'] == username]['password'].values) > 0:
+#         if df.loc[df['username'] == username]['password'].values[0] == password:
+#             session['username'] = username
+#             session['role'] = role  # Store the role in the session
+#             return redirect(url_for('emp')) 
+#         else:
+#             return 'failed'
+#     else:
+#         return 'Login Failed: User not found'
+#     return render_template('main.html')
+
+@app.route('/login', methods=['GET','POST'])
+def login():
+    json_data = request.form
+    username = json_data['username']
+    password = json_data['password']
+    role = json_data['role']
+
+    df = pd.read_csv('C:\\Users\\pravi\\Downloads\\CGE-Attendance-App\\CGE-Attendance-App\\templates\\cred.csv')
+
+    # print(f"Username: {username}, Password: {password}, Role: {role}")  # Debugging output
+
+    # Check credentials based on role
+    user_record = df.loc[df['username'] == username]
+
+    if not user_record.empty:
+        if user_record['password'].values[0] == password:
+            # Check if the role matches
+            if user_record['role'].values[0] == role:
+                session['username'] = username
+                session['role'] = role
+                return redirect(url_for('emp'))
+            else:
+                return '''
+                    <script>
+                        alert("Login Failed: Role mismatch");
+                        window.location.href = "/login";  // Redirect to login page
+                    </script>
+                '''
+        else:
+            return '''
+                <script>
+                    alert("Login Failed: Incorrect password");
+                    window.location.href = "/login";  // Redirect to login page
+                </script>
+            '''
+    else:
+        return '''
+            <script>
+                alert("Login Failed: User not found");
+                window.location.href = "/login";  // Redirect to login page
+            </script>
+        '''
+
+    return render_template('main.html')
+
+@app.route('/main')
+def main():
+    if 'username' not in session:
+        return redirect(url_for('login'))  # Redirect to login if not logged in
+    return render_template('emp.html')  # Render the main page if logged in
+@app.route('/emp')
+def emp():
+    return render_template('emp.html')  # or whatever your intended logic is
+# @app.route('/logout')
+# def logout():
+#     session.pop('username', None)  # Remove the username from the session
+#     session.pop('role', None)  # Remove the role from the session
+#     return redirect(url_for('login'))  # Redirect to login page
 
 @app.route('/checklogin')
 def checklogin():
@@ -256,13 +248,13 @@ def data():
         conn.row_factory = sqlite3.Row
         cur = conn.cursor()
         print ("Opened database successfully");
-        cursor = cur.execute("SELECT DISTINCT NAME,Time, Date from CGAttendance where Date=?",(today,))
+        cursor = cur.execute("SELECT NAME,EmpId,DESIGNATION,Time,Date,Shift  from CGEmployeeData where Date=?",(today,))
         rows=cur.fetchall()
         print(rows)
         for line in cursor:
 
             data1=list(line)
-        print ("Operation done successfully");
+        print ("Operation done successfully")
         conn.close()
 
         return render_template('form2.html',rows=rows)
@@ -278,8 +270,8 @@ def whole():
     conn = sqlite3.connect('information.db')
     conn.row_factory = sqlite3.Row 
     cur = conn.cursor() 
-    print ("Opened database successfully");
-    cursor = cur.execute("SELECT DISTINCT NAME,Time, Date from CGAttendance")
+    print ("Opened database successfully")
+    cursor = cur.execute("SELECT NAME,EmpId,DESIGNATION,Time,Date,Shift  from CGEmployeeData")
     rows=cur.fetchall()    
     return render_template('form3.html',rows=rows)
 
@@ -330,8 +322,338 @@ def sendMail():
     server.sendmail(mssg["From"],mssg["To"],mssg.as_string())
    # server.quit()
 
+def load_known_faces():
+    known_face_encodings = []
+    known_face_details = []
+    path = 'Training images'
+    
+    if not os.path.exists(path):
+        return [], []
+        
+    for img_name in os.listdir(path):
+        if img_name.endswith(('.png', '.jpg', '.jpeg')):
+            # Extract details from filename
+            name, id_num, designation = img_name.rsplit('.', 1)[0].split('.')
+            
+            # Load and encode face
+            image_path = os.path.join(path, img_name)
+            face_image = face_recognition.load_image_file(image_path)
+            try:
+                face_encoding = face_recognition.face_encodings(face_image)[0]
+                known_face_encodings.append(face_encoding)
+                known_face_details.append((name, id_num, designation))
+            except IndexError:
+                print(f"No face found in {img_name}")
+                continue
+            
+    return known_face_encodings, known_face_details
 
+# Initialize face encodings when app starts
+encodeListKnown, classNames = load_known_faces()
 
+@app.route('/set-punch-type/<type>')
+def set_punch_type(type):
+    try:
+        global PUNCH_TYPE
+        if type not in ['in', 'out']:
+            return jsonify({'error': 'Invalid punch type'}), 400
+        PUNCH_TYPE = type
+        return jsonify({'status': 'success', 'type': type})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.errorhandler(404)
+def not_found_error(error):
+    return jsonify({'error': 'Not found'}), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({'error': 'Internal server error'}), 500
+
+def determine_shift():
+    current_time = datetime.now().time()
+    
+    for shift_name, timing in SHIFTS.items():
+        if shift_name == 'Night':
+            # Special handling for night shift that crosses midnight
+            if current_time >= timing['start'] or current_time < timing['end']:
+                return shift_name
+        else:
+            if timing['start'] <= current_time < timing['end']:
+                return shift_name
+    
+    return 'Unknown'
+
+def validate_punch_in(name, id_num, date):
+    try:
+        filename = f'Attendance/Attendance-{date}.csv'
+        if not os.path.exists(filename):
+            return False, "No attendance record found for today"
+            
+        with open(filename, 'r', newline='') as f:
+            reader = csv.reader(f)
+            next(reader)  # Skip header
+            for row in reader:
+                if len(row) >= 6 and row[0] == name and row[1] == id_num:
+                    # Check if punch in exists and is not empty
+                    if row[5] and row[5].strip():
+                        return True, "Punch in record found"
+                    else:
+                        return False, "No punch in time recorded"
+                        
+        return False, "No record found for this employee today"
+        
+    except Exception as e:
+        return False, f"Error validating punch in: {str(e)}"
+
+def markAttendance(name, id_num, designation, punch_type):
+    try:
+        now = datetime.now()
+        date = now.strftime('%Y-%m-%d')
+        time = now.strftime('%H:%M:%S')
+        current_shift = determine_shift()
+        
+        # For punch out, validate punch in first
+        if punch_type == 'out':
+            has_punch_in, message = validate_punch_in(name, id_num, date)
+            if not has_punch_in:
+                raise ValueError(f"Cannot punch out: {message}. Please punch in first.")
+        
+        if not os.path.exists('Attendance'):
+            os.makedirs('Attendance')
+            
+        filename = f'Attendance/Attendance-{date}.csv'
+        headers = ['Name', 'ID', 'Designation', 'Date', 'Shift', 'Punch In', 'Punch Out', 'Status']
+        
+        # Create new file with headers if it doesn't exist
+        if not os.path.exists(filename):
+            with open(filename, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(headers)
+        
+        rows = []
+        user_found = False
+        status_message = ""
+        
+        try:
+            with open(filename, 'r', newline='') as f:
+                reader = csv.reader(f)
+                file_headers = next(reader, None)
+                rows.append(headers)
+                
+                for row in reader:
+                    current_row = list(row)
+                    while len(current_row) < len(headers):
+                        current_row.append('')
+                    
+                    if len(current_row) >= 2 and current_row[0] == name and current_row[1] == id_num:
+                        user_found = True
+                        if punch_type == 'in':
+                            # Check if already punched in
+                            if current_row[5] and current_row[5].strip():
+                                raise ValueError(f"Already punched in at {current_row[5]}")
+                            
+                            current_row[4] = current_shift
+                            current_row[5] = time
+                            current_row[7] = 'Present'
+                            status_message = f"Punch In recorded for {name} at {time} ({current_shift} shift)"
+                        elif punch_type == 'out':
+                            if not current_row[5]:
+                                raise ValueError("No punch in record found. Please punch in first.")
+                            
+                            current_row[6] = time
+                            
+                            # Calculate if late or early departure
+                            shift_end = SHIFTS[current_row[4]]['end']
+                            current_time = datetime.strptime(time, '%H:%M:%S').time()
+                            
+                            if current_time < shift_end:
+                                current_row[7] = 'Early Departure'
+                            
+                            status_message = f"Punch Out recorded for {name} at {time}"
+                    
+                    rows.append(current_row)
+                
+                if not user_found:
+                    if punch_type == 'in':
+                        new_row = [name, id_num, designation, date, current_shift, time, '', 'Present']
+                        rows.append(new_row)
+                        status_message = f"New Punch In recorded for {name} at {time} ({current_shift} shift)"
+                    else:
+                        raise ValueError("No punch in record found. Please punch in first.")
+        
+        except Exception as e:
+            print(f"Error reading CSV: {str(e)}")
+            raise
+        
+        # Write all rows back to file
+        with open(filename, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerows(rows)
+        
+        return status_message, current_shift
+            
+    except Exception as e:
+        print(f"Error in markAttendance: {str(e)}")
+        raise Exception(str(e))
+
+@app.route('/get-current-shift')
+def get_current_shift():
+    return jsonify({
+        'shift': determine_shift(),
+        'time': datetime.now().strftime('%H:%M:%S')
+    })
+
+@app.route('/process-frame', methods=['POST'])
+def process_frame():
+    try:
+        global PUNCH_TYPE
+        if not PUNCH_TYPE:
+            return jsonify({'error': 'Please select Punch In or Punch Out first'})
+            
+        print("Starting face processing...")
+        
+        if not encodeListKnown or not classNames:
+            print("No encoded faces found in database")
+            return jsonify({
+                'error': 'No faces in database', 
+                'encoded_faces': len(encodeListKnown), 
+                'known_names': len(classNames)
+            })
+
+        if 'image' not in request.files:
+            print("No image file received")
+            return jsonify({'error': 'No image file'})
+
+        # Load and process the image
+        image_file = request.files['image']
+        
+        # Convert the image to bytes
+        image_bytes = image_file.read()
+        
+        # Convert bytes to numpy array
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        
+        # Decode image
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if frame is None:
+            print("Failed to decode image")
+            return jsonify({'error': 'Failed to decode image'})
+            
+        # Convert BGR to RGB
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            
+        print(f"Image shape: {frame_rgb.shape}")
+        
+        # Ensure image is 8-bit
+        if frame_rgb.dtype != np.uint8:
+            frame_rgb = frame_rgb.astype(np.uint8)
+        
+        # Find faces in the frame
+        face_locations = face_recognition.face_locations(frame_rgb)
+        print(f"Found {len(face_locations)} faces")
+        
+        if not face_locations:
+            return jsonify({'name': 'No face detected'})
+            
+        # Get face encodings
+        face_encodings = face_recognition.face_encodings(frame_rgb, face_locations)
+        print(f"Generated {len(face_encodings)} encodings")
+
+        # Process each face found
+        for face_encoding in face_encodings:
+            matches = face_recognition.compare_faces(encodeListKnown, face_encoding, tolerance=0.5)
+            print(f"Match results: {matches}")
+            
+            if True in matches:
+                match_index = matches.index(True)
+                Name, ID, Designation = classNames[match_index]
+                
+                face_distances = face_recognition.face_distance(encodeListKnown, face_encoding)
+                confidence = 1 - face_distances[match_index]
+                print(f"Match found: {Name} with confidence {confidence}")
+                
+                if confidence > 0.5:
+                    try:
+                        status_message, current_shift = markAttendance(Name, ID, Designation, PUNCH_TYPE)
+                        
+                        return jsonify({
+                            'name': Name,
+                            'id': ID,
+                            'designation': Designation,
+                            'confidence': f"{confidence:.2%}",
+                            'status': status_message,
+                            'shift': current_shift
+                        })
+                    except Exception as e:
+                        return jsonify({
+                            'error': str(e)
+                        })
+
+        print("No matches found above confidence threshold")
+        return jsonify({'name': 'Unknown'})
+
+    except Exception as e:
+        print(f"Error in process_frame: {str(e)}")
+        return jsonify({'error': str(e)})
+
+@app.route('/debug-encodings')
+def debug_encodings():
+    try:
+        # Reload encodings
+        global encodeListKnown, classNames
+        encodeListKnown, classNames = load_known_faces()
+        
+        # Get training images info
+        path = 'Training images'
+        training_images = []
+        if os.path.exists(path):
+            for img_name in os.listdir(path):
+                if img_name.endswith(('.png', '.jpg', '.jpeg')):
+                    full_path = os.path.join(path, img_name)
+                    size = os.path.getsize(full_path)
+                    training_images.append({
+                        'name': img_name,
+                        'size': size,
+                        'path': full_path
+                    })
+        
+        return jsonify({
+            'encoded_faces_count': len(encodeListKnown),
+            'known_names_count': len(classNames),
+            'known_names': classNames,
+            'training_images': training_images
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+def check_punch_status(name, id_num):
+    try:
+        date = datetime.now().strftime('%Y-%m-%d')
+        filename = f'Attendance/Attendance-{date}.csv'
+        
+        if not os.path.exists(filename):
+            return None
+            
+        with open(filename, 'r') as f:
+            reader = csv.reader(f)
+            next(reader)  # Skip header
+            for row in reader:
+                if len(row) >= 2 and row[0] == name and row[1] == id_num:
+                    return {
+                        'punch_in': row[4] if len(row) > 4 else None,
+                        'punch_out': row[5] if len(row) > 5 else None
+                    }
+        return None
+    except Exception as e:
+        print(f"Error checking punch status: {str(e)}")
+        return None
+
+@app.route('/check-status/<name>/<id_num>')
+def get_punch_status(name, id_num):
+    status = check_punch_status(name, id_num)
+    return jsonify(status if status else {'punch_in': None, 'punch_out': None})
 
 if __name__ == '__main__':
     app.run(debug=True)

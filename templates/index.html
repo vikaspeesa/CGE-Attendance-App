@@ -205,9 +205,12 @@ html{
                 <input type="text" name="name1" id="name" placeholder="Enter Your Name" required>
 				 <label for="name"> Registration Id:</label>
                 <input type="text" name="name2" id="name" placeholder="Enter Your Registration Number" required>
+                <label for="name"> Designation:</label>
+                <input type="text" name="name3" id="name" placeholder="Enter Your Registration Number" required>
             </div>
 			<br>
              <button type="submit" name="submit">Submit</button><br>
+
 			 <br>
 			 <h3>Your webcam will open after pushing the submit button.</h3>
 			  <h3>Press space to capture your image and escape to close the camera</h3>
@@ -219,5 +222,27 @@ html{
     copyright &copy; Amlan Mohanty 2022. All rights reserved!
 </div>
 </footer>
+
+<script>
+    document.getElementById('logoutButton').addEventListener('click', function() {
+        // Get the username from the session or any other method you use
+        const username = '{{ session["username"] }}'; // Assuming you are using Flask's session
+
+        // Make a POST request to the logout endpoint
+        fetch('/logout', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ username: username })
+        })
+        .then(response => response.text())
+        .then(data => {
+            alert(data); // Show the response message
+            window.location.href = '/'; // Redirect to the home page or login page
+        })
+        .catch(error => console.error('Error:', error));
+    });
+</script>
 </body>
 </html>

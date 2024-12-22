@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Camera Capture</title>
+    <style>
+        .camera-container {
+            text-align: center;
+            padding: 20px;
+        }
+        #video, #canvas {
+            margin-bottom: 10px;
+            border: 2px solid #333;
+        }
+        .button {
+            padding: 10px 20px;
+            margin: 5px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div class="camera-container">
+        <video id="video" width="640" height="480" autoplay></video>
+        <canvas id="canvas" width="640" height="480" style="display:none;"></canvas>
+        <div>
+            <button id="capture" class="button">Capture Photo</button>
+            <button id="save" class="button" style="display:none;">Save Photo</button>
+        </div>
+    </div>
+
+    <script>
+        let video = document.getElementById('video');
+        let canvas = document.getElementById('canvas');
+        let captureButton = document.getElementById('capture');
+        let saveButton = document.getElementById('save');
+        let stream;
+
+        // Get camera access
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(function(s) {
+                stream = s;
+                video.srcObject = stream;
+            })
+            .catch(function(err) {
+                alert('Error accessing camera: ' + err);
+            });
+
+        // Capture photo
+        captureButton.addEventListener('click', function() {
+            canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+            canvas.style.display = 'block';
+            video.style.display = 'none';
+            saveButton.style.display = 'inline-block';
+            captureButton.textContent = 'Retake';
+            
+            if (captureButton.textContent === 'Retake') {
+                canvas.style.display = 'none';
+                video.style.display = 'block';
+                saveButton.style.display = 'none';
+                captureButton.textContent = 'Capture Photo';
+            }
+        });
+
+        // Save photo
+        saveButton.addEventListener('click', function() {
+            canvas.toBlob(function(blob) {
+                const formData = new FormData();
+                formData.append('image', blob, 'capture.png');
+                formData.append('name1', '{{ name1 }}');
+                formData.append('name2', '{{ ID }}');
+                formData.append('name3', '{{ Designation }}');
+
+                fetch('/save-photo', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Photo saved successfully!');
+                        window.location.href = '/image';
+                    } else {
+                        alert('Error saving photo: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    alert('Error: ' + error);
+                });
+            }, 'image/png');
+        });
+
+        // Clean up when leaving page
+        window.onbeforeunload = function() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+        };
+    </script>
+</body>
+</html> 

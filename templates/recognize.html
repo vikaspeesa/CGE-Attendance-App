@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Face Recognition</title>
+    <style>
+        .camera-container {
+            text-align: center;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .shift-info {
+            background-color: #f0f0f0;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .button-container {
+            margin-bottom: 20px;
+        }
+        .button {
+            padding: 10px 20px;
+            margin: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            background-color: #4CAF50;
+            color: white;
+        }
+        .button:hover {
+            background-color: #45a049;
+        }
+        .button.active {
+            background-color: #45a049;
+            box-shadow: 0 0 5px rgba(0,0,0,0.3);
+        }
+        .success-message {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .restart-btn {
+            background-color: #28a745;
+        }
+        .home-btn {
+            background-color: #007bff;
+        }
+        #result {
+            background-color: white;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="camera-container">
+        <div class="shift-info" style="margin-bottom: 15px;">
+            <h3>Current Shift: <span id="currentShift">Loading...</span></h3>
+            <p>Time: <span id="currentTime">Loading...</span></p>
+        </div>
+        <div class="button-container" style="margin-bottom: 20px;">
+            <button onclick="setPunchType('in')" class="button" id="punchInBtn">Punch In</button>
+            <button onclick="setPunchType('out')" class="button" id="punchOutBtn">Punch Out</button>
+        </div>
+        <div id="punchStatus" style="margin-bottom: 10px; font-weight: bold;"></div>
+        
+        <!-- Camera container with controls -->
+        <div id="cameraSection">
+            <video id="video" width="640" height="480" autoplay></video>
+            <canvas id="canvas" width="640" height="480" style="display:none;"></canvas>
+        </div>
+
+        <!-- Success message container -->
+        <div id="successSection" style="display:none;">
+            <div class="success-message">
+                <h2>✅ Attendance Recorded Successfully!</h2>
+                <div id="result" style="margin-top: 20px; font-size: 18px;"></div>
+                <button onclick="restartCamera()" class="button restart-btn">Record Another Attendance</button>
+                <button onclick="window.location.href='/'" class="button home-btn">Back to Home</button>
+            </div>
+        </div>
+
+        <div id="debug" style="margin-top: 10px; color: red;"></div>
+        <div id="status" style="margin-top: 10px; color: blue;"></div>
+    </div>
+
+    <script>
+        let videoStream = null;
+        let recognitionInterval = null;
+
+        // Define all DOM elements at the start
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const resultDiv = document.getElementById('result');
+        const debugDiv = document.getElementById('debug');
+        const statusDiv = document.getElementById('status');
+        const punchStatusDiv = document.getElementById('punchStatus');
+        const cameraSection = document.getElementById('cameraSection');
+        const successSection = document.getElementById('successSection');
+        let currentPunchType = null;
+
+        function stopCamera() {
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
+            }
+            if (recognitionInterval) {
+                clearInterval(recognitionInterval);
+                recognitionInterval = null;
+            }
+        }
+
+        function showSuccess(data) {
+            // Stop the camera
+            stopCamera();
+            
+            // Hide camera section and show success section
+            cameraSection.style.display = 'none';
+            successSection.style.display = 'block';
+            
+            // Display results
+            resultDiv.innerHTML = `
+                <h3>Attendance Details:</h3>
+                <p><strong>Name:</strong> ${data.name}</p>
+                <p><strong>ID:</strong> ${data.id}</p>
+                <p><strong>Designation:</strong> ${data.designation}</p>
+                <p><strong>Shift:</strong> ${data.shift}</p>
+                <p><strong>Status:</strong> ${data.status}</p>
+                <p><strong>Time:</strong> ${new Date().toLocaleTimeString()}</p>
+            `;
+        }
+
+        function restartCamera() {
+            // Reset UI
+            successSection.style.display = 'none';
+            cameraSection.style.display = 'block';
+            resultDiv.textContent = '';
+            debugDiv.textContent = '';
+            currentPunchType = null;
+            punchStatusDiv.textContent = 'Please select Punch In or Punch Out';
+            document.getElementById('punchInBtn').classList.remove('active');
+            document.getElementById('punchOutBtn').classList.remove('active');
+            
+            // Restart camera and recognition
+            initializeCamera();
+        }
+
+        function initializeCamera() {
+            navigator.mediaDevices.getUserMedia({ video: true })
+                .then(function(stream) {
+                    videoStream = stream;
+                    video.srcObject = stream;
+                    startRecognition();
+                })
+                .catch(function(err) {
+                    debugDiv.textContent = `Error accessing camera: ${err.message}`;
+                });
+        }
+
+        function startRecognition() {
+            recognitionInterval = setInterval(() => {
+                if (!currentPunchType) {
+                    statusDiv.textContent = 'Please select Punch In or Punch Out first';
+                    return;
+                }
+
+                statusDiv.textContent = 'Capturing frame...';
+                canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                canvas.toBlob(function(blob) {
+                    const formData = new FormData();
+                    formData.append('image', blob, 'capture.png');
+
+                    statusDiv.textContent = 'Processing frame...';
+                    fetch('/process-frame', {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(handleFetchResponse)
+                    .then(data => {
+                        if (data.error) {
+                            debugDiv.textContent = `Error: ${data.error}`;
+                            resultDiv.textContent = '';
+                        } else if (data.name === 'Unknown') {
+                            resultDiv.textContent = 'No match found';
+                            statusDiv.textContent = 'Face detected but not recognized';
+                        } else {
+                            showSuccess(data);
+                        }
+                    })
+                    .catch(error => {
+                        debugDiv.textContent = `Error processing frame: ${error.message}`;
+                        statusDiv.textContent = 'Error occurred';
+                    });
+                }, 'image/png', 1.0);
+            }, 2000);
+        }
+
+        // Helper function to handle fetch responses
+        async function handleFetchResponse(response) {
+            if (!response.ok) {
+                const contentType = response.headers.get("content-type");
+                if (contentType && contentType.includes("application/json")) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Server error');
+                } else {
+                    throw new Error('Network response was not ok');
+                }
+            }
+            return response.json();
+        }
+
+        function updateShiftInfo() {
+            fetch('/get-current-shift')
+                .then(handleFetchResponse)
+                .then(data => {
+                    document.getElementById('currentShift').textContent = data.shift;
+                    document.getElementById('currentTime').textContent = data.time;
+                })
+                .catch(error => {
+                    debugDiv.textContent = `Error updating shift info: ${error.message}`;
+                });
+        }
+
+        function setPunchType(type) {
+            // Clear any existing error messages
+            debugDiv.textContent = '';
+            resultDiv.textContent = '';
+
+            fetch(`/set-punch-type/${type}`)
+                .then(handleFetchResponse)
+                .then(data => {
+                    if (data.status === 'success') {
+                        currentPunchType = type;
+                        punchStatusDiv.textContent = `Selected: ${type === 'in' ? 'Punch In' : 'Punch Out'}`;
+                        
+                        // Update button styles
+                        document.getElementById('punchInBtn').classList.toggle('active', type === 'in');
+                        document.getElementById('punchOutBtn').classList.toggle('active', type === 'out');
+                    }
+                })
+                .catch(error => {
+                    debugDiv.textContent = `Error setting punch type: ${error.message}`;
+                    punchStatusDiv.textContent = '';
+                    currentPunchType = null;
+                });
+        }
+
+        // Initialize the system
+        updateShiftInfo();
+        setInterval(updateShiftInfo, 60000);
+        initializeCamera();
+    </script>
+</body>
+</html> 
